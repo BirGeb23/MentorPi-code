@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MentorPi Intent Demo</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: radial-gradient(circle at 50% 0%, #161c2c 0%, #0b0e15 55%, #08090d 100%);
+        color: #e6e6e6;
+        padding: 24px;
+        min-height: 100vh;
+    }
+
+    .header {
+        text-align: center;
+        margin-bottom: 22px;
+    }
+    .header h1 {
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        background: linear-gradient(90deg, #f8fafc, #94a3b8);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+    .header p { font-size: 14px; color: #64748b; margin-top: 4px; }
+
+    /* ---------- Hero status banner ---------- */
+    .hero {
+        max-width: 1320px;
+        margin: 0 auto 24px;
+        background: linear-gradient(135deg, #1b2338, #0d1220);
+        border: 1px solid #2c3650;
+        border-radius: 18px;
+        padding: 30px 24px;
+        text-align: center;
+        transition: box-shadow 0.25s ease, border-color 0.25s ease;
+    }
+    .hero .eyebrow {
+        font-size: 13px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .hero .big {
+        font-size: 56px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        margin-top: 8px;
+        color: #e2e8f0;
+        transition: color 0.2s ease, transform 0.2s ease;
+    }
+    .hero .sub {
+        font-size: 16px;
+        color: #94a3b8;
+        margin-top: 10px;
+        min-height: 22px;
+    }
+    .hero.firing {
+        box-shadow: 0 0 0 4px rgba(253, 224, 71, 0.18), 0 0 60px rgba(253, 224, 71, 0.12);
+        border-color: #fde047;
+    }
+    .hero.firing .big { transform: scale(1.04); }
+    .hero .gesture-flash {
+        display: inline-block;
+        margin-top: 10px;
+        font-size: 20px;
+        font-weight: 700;
+        color: #fde047;
+        letter-spacing: 0.05em;
+    }
+
+    .container {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.3fr);
+        gap: 22px;
+        max-width: 1320px;
+        margin: 0 auto;
+        align-items: start;
+    }
+    @media (max-width: 950px) {
+        .container { grid-template-columns: 1fr; }
+    }
+
+    .camera-card {
+        background: #141a29;
+        border: 1px solid #262e42;
+        border-radius: 16px;
+        padding: 18px;
+    }
+    .camera-card h2 { font-size: 12px; color: #7c8aa5; text-transform: uppercase;
+        letter-spacing: 0.08em; margin-bottom: 12px; font-weight: 700; }
+    .camera-card img {
+        width: 100%;
+        border-radius: 10px;
+        background: #000;
+        aspect-ratio: 4 / 3;
+        object-fit: contain;
+        display: block;
+        border: 1px solid #1f2637;
+    }
+
+    .person-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin-top: 14px; font-size: 14px; color: #94a3b8;
+    }
+    .person-dot { width: 10px; height: 10px; border-radius: 50%; background: #475569;
+        display: inline-block; margin-right: 8px; transition: background 0.2s; }
+    .person-dot.visible { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+
+    .log-card {
+        background: #141a29;
+        border: 1px solid #262e42;
+        border-radius: 16px;
+        padding: 16px 18px;
+        margin-top: 22px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .log-card h2 { font-size: 12px; color: #7c8aa5; text-transform: uppercase;
+        letter-spacing: 0.08em; margin-bottom: 10px; font-weight: 700; }
+    .log-entry {
+        font-size: 12.5px;
+        font-family: 'SF Mono', 'Consolas', monospace;
+        color: #cbd5e1;
+        padding: 6px 0;
+        border-bottom: 1px solid #1f2637;
+    }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry .tag { color: #fde047; font-weight: 700; }
+
+    /* ---------- Intent buttons ---------- */
+    .buttons-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    @media (max-width: 620px) {
+        .buttons-panel { grid-template-columns: 1fr; }
+    }
+    .intent-btn.wide { grid-column: 1 / -1; }
+
+    .intent-btn {
+        position: relative;
+        text-align: left;
+        border: 1.5px solid #262e42;
+        border-radius: 16px;
+        padding: 18px;
+        cursor: pointer;
+        background: #141a29;
+        color: #e6e6e6;
+        transition: transform 0.08s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        font-family: inherit;
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+    }
+    .intent-btn:hover:not(:disabled) { border-color: #3a465f; }
+    .intent-btn:active:not(:disabled) { transform: scale(0.98); }
+    .intent-btn:disabled { opacity: 0.45; cursor: default; }
+
+    .intent-icon {
+        flex: none;
+        width: 46px; height: 46px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        background: rgba(255,255,255,0.04);
+    }
+    .intent-icon svg { width: 26px; height: 26px; }
+
+    .intent-body { flex: 1; min-width: 0; }
+    .intent-btn .name {
+        font-size: 19px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+    }
+    .intent-btn .desc {
+        font-size: 12.5px;
+        color: #8291a8;
+        margin-top: 5px;
+        line-height: 1.45;
+    }
+
+    .dots-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+    .dot {
+        width: 11px; height: 11px;
+        border-radius: 50%;
+        background: #263049;
+        border: 1.5px solid #3a465f;
+        transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    }
+    .dot.filled { transform: scale(1.1); }
+    .dots-label { font-size: 11px; color: #64748b; margin-left: 4px; font-family: 'SF Mono', monospace; }
+
+    .intent-btn.neutral      { border-left: 4px solid #94a3b8; }
+    .intent-btn.check_in     { border-left: 4px solid #60a5fa; }
+    .intent-btn.engage       { border-left: 4px solid #4ade80; }
+    .intent-btn.caution      { border-left: 4px solid #fbbf24; }
+    .intent-btn.de_escalate  { border-left: 4px solid #f87171; }
+
+    .intent-btn.neutral .name      { color: #cbd5e1; }
+    .intent-btn.check_in .name     { color: #60a5fa; }
+    .intent-btn.engage .name       { color: #4ade80; }
+    .intent-btn.caution .name      { color: #fbbf24; }
+    .intent-btn.de_escalate .name  { color: #f87171; }
+
+    .intent-btn.neutral .intent-icon      { color: #94a3b8; }
+    .intent-btn.check_in .intent-icon     { color: #60a5fa; }
+    .intent-btn.engage .intent-icon       { color: #4ade80; }
+    .intent-btn.caution .intent-icon      { color: #fbbf24; }
+    .intent-btn.de_escalate .intent-icon  { color: #f87171; }
+
+    .intent-btn.neutral .dot.filled      { background: #94a3b8; border-color: #94a3b8; }
+    .intent-btn.caution .dot.filled      { background: #fbbf24; border-color: #fbbf24; }
+
+    .intent-btn.firing {
+        box-shadow: 0 0 0 2px rgba(255,255,255,0.25), 0 0 24px rgba(255,255,255,0.08);
+    }
+
+    .footer {
+        max-width: 1320px;
+        margin: 24px auto 0;
+        text-align: center;
+        font-size: 12px;
+        color: #4b5567;
+    }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>MentorPi — Intent Demo</h1>
+    <p>Press an intent to trigger it live on the robot. Consecutive presses unlock personality gestures.</p>
+</div>
+
+<div class="hero" id="hero">
+    <div class="eyebrow">Current State</div>
+    <div class="big" id="heroBig">READY</div>
+    <div class="sub" id="heroSub">Press an intent button below to begin</div>
+</div>
+
+<div class="container">
+    <div>
+        <div class="camera-card">
+            <h2>Live Camera</h2>
+            <img id="camera" src="/camera" alt="Live camera feed">
+            <div class="person-row">
+                <span><span class="person-dot" id="personDot"></span><span id="personText">Checking for person...</span></span>
+                <span id="distanceText"></span>
+            </div>
+        </div>
+
+        <div class="log-card">
+            <h2>Trigger Log</h2>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <div class="buttons-panel" id="buttons"></div>
+</div>
+
+<div class="footer">MentorPi Intent Demo &middot; GSU SURS &middot; runs entirely on the local network</div>
+
+<script>
+const ICONS = {
+    neutral: `<svg viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="14" stroke="currentColor" stroke-width="2.5"/><circle cx="20" cy="20" r="3.2" fill="currentColor"/></svg>`,
+    check_in: `<svg viewBox="0 0 40 40" fill="none"><circle cx="32" cy="20" r="4" fill="currentColor"/><path d="M6 20 H22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M16 14 L22 20 L16 26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    engage: `<svg viewBox="0 0 40 40" fill="none"><path d="M6 13 L15 20 L6 27" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 13 L26 20 L17 27" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="33" cy="20" r="3.4" fill="currentColor"/></svg>`,
+    caution: `<svg viewBox="0 0 40 40" fill="none"><path d="M4 20 C10 9, 30 9, 36 20 C30 31, 10 31, 4 20 Z" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round"/><circle cx="20" cy="20" r="5" fill="currentColor"/></svg>`,
+    de_escalate: `<svg viewBox="0 0 40 40" fill="none"><circle cx="8" cy="20" r="4" fill="currentColor"/><path d="M34 20 H18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M24 14 L18 20 L24 26" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+};
+
+const INTENTS = [
+    { id: "NEUTRAL", cls: "neutral", desc: "Idle baseline — holds still.", threshold: 3, gesture: "PULSE", wide: false },
+    { id: "CHECK_IN", cls: "check_in", desc: "Approaches to ~1.5m, faces the person.", threshold: null, gesture: null, wide: false },
+    { id: "ENGAGE", cls: "engage", desc: "Approaches to ~1.0m. GREET on 2nd press in a row, once per streak.", threshold: 2, gesture: "GREET", wide: false },
+    { id: "CAUTION", cls: "caution", desc: "Freezes, stays watchful.", threshold: 2, gesture: "SCAN", wide: false },
+    { id: "DE_ESCALATE", cls: "de_escalate", desc: "Backs away to ~2.0m, gives space.", threshold: null, gesture: null, wide: true },
+];
+
+const buttonsEl = document.getElementById("buttons");
+const hero = document.getElementById("hero");
+const heroBig = document.getElementById("heroBig");
+const heroSub = document.getElementById("heroSub");
+const logEl = document.getElementById("log");
+const personDot = document.getElementById("personDot");
+const personText = document.getElementById("personText");
+const distanceText = document.getElementById("distanceText");
+
+let busy = false;
+
+function dotsHtml(id, threshold) {
+    if (!threshold) return "";
+    let dots = "";
+    for (let i = 0; i < threshold; i++) {
+        dots += `<span class="dot" id="dot-${id}-${i}"></span>`;
+    }
+    return `<div class="dots-row">${dots}<span class="dots-label" id="dotslabel-${id}"></span></div>`;
+}
+
+function renderButtons() {
+    buttonsEl.innerHTML = "";
+    INTENTS.forEach(it => {
+        const btn = document.createElement("button");
+        btn.className = `intent-btn ${it.cls}${it.wide ? " wide" : ""}`;
+        btn.id = `btn-${it.id}`;
+        btn.innerHTML = `
+            <div class="intent-icon">${ICONS[it.cls]}</div>
+            <div class="intent-body">
+                <div class="name">${it.id}</div>
+                <div class="desc">${it.desc}</div>
+                ${dotsHtml(it.id, it.threshold)}
+            </div>
+        `;
+        btn.addEventListener("click", () => triggerIntent(it.id));
+        buttonsEl.appendChild(btn);
+    });
+}
+
+function setBusy(v) {
+    busy = v;
+    document.querySelectorAll(".intent-btn").forEach(b => b.disabled = v);
+}
+
+function addLog(text, tag) {
+    const div = document.createElement("div");
+    div.className = "log-entry";
+    const time = new Date().toLocaleTimeString();
+    div.innerHTML = `[${time}] ${text}` + (tag ? ` <span class="tag">${tag}</span>` : "");
+    logEl.insertBefore(div, logEl.firstChild);
+}
+
+function updateDots(intentId, count, threshold, justFired, labelOverride) {
+    if (!threshold) return;
+    for (let i = 0; i < threshold; i++) {
+        const dot = document.getElementById(`dot-${intentId}-${i}`);
+        if (!dot) continue;
+        dot.classList.toggle("filled", !justFired && i < count);
+    }
+    const label = document.getElementById(`dotslabel-${intentId}`);
+    if (label) {
+        label.textContent = labelOverride
+            ? labelOverride
+            : (justFired ? "reset" : `${Math.min(count, threshold)}/${threshold}`);
+    }
+}
+
+async function triggerIntent(intent) {
+    if (busy) return;
+    setBusy(true);
+
+    const meta = INTENTS.find(i => i.id === intent);
+    const btn = document.getElementById(`btn-${intent}`);
+    btn.classList.add("firing");
+    hero.classList.remove("firing");
+    heroBig.style.color = "";
+    heroBig.textContent = intent;
+    heroSub.textContent = "Running...";
+
+    try {
+        const res = await fetch("/trigger", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ intent }),
+        });
+        const data = await res.json();
+
+        if (data.gesture) {
+            hero.classList.add("firing");
+            heroBig.textContent = data.gesture;
+            heroSub.innerHTML = `triggered by ${intent} x${data.threshold}`;
+            addLog(`${intent} fired`, data.gesture);
+            updateDots(intent, 0, meta.threshold, true);
+            setTimeout(() => updateDots(intent, 0, meta.threshold, false), 1400);
+        } else {
+            heroBig.textContent = intent;
+            heroSub.textContent = data.gesture_note
+                ? data.gesture_note
+                : (data.consecutive_count > 1
+                    ? `x${data.consecutive_count} in a row`
+                    : "motion complete");
+            addLog(`${intent}${data.consecutive_count > 1 ? ` (x${data.consecutive_count})` : ""}`,
+                   data.gesture_label || undefined);
+            if (meta.threshold) updateDots(intent, data.consecutive_count, meta.threshold, false,
+                                           data.gesture_label);
+        }
+
+        // Any other gestured intent's dots reset visually once we've moved on
+        INTENTS.forEach(it => {
+            if (it.id !== intent && it.threshold) updateDots(it.id, 0, it.threshold, false);
+        });
+
+        if (data.person_distance != null) {
+            distanceText.textContent = `${data.person_distance.toFixed(2)} m`;
+        }
+    } catch (e) {
+        heroBig.textContent = "ERROR";
+        heroSub.textContent = String(e);
+        addLog(`Error triggering ${intent}: ${e}`);
+    } finally {
+        btn.classList.remove("firing");
+        setBusy(false);
+    }
+}
+
+async function pollState() {
+    try {
+        const res = await fetch("/state");
+        const data = await res.json();
+        personDot.classList.toggle("visible", !!data.person_visible);
+        personText.textContent = data.person_visible ? "Person detected" : "No person detected — intents still run";
+    } catch (e) {
+        personText.textContent = "State unavailable";
+    }
+}
+
+renderButtons();
+pollState();
+setInterval(pollState, 1000);
+</script>
+
+</body>
+</html>

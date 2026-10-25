@@ -1,0 +1,94 @@
+--- a/va-driven-behaviors/online/streaming_session.py
++++ b/va-driven-behaviors/online/streaming_session.py
+@@ -162,6 +162,7 @@
+         temp_dir: Optional[str]     = None,
+         on_behavior_update          = None,
+         num_samples: Optional[int]  = None,
++        max_workers: int            = 2,
+     ):
+         """
+         on_behavior_update: optional callable invoked immediately when each
+@@ -185,6 +186,7 @@
+         self.on_behavior_update   = on_behavior_update
+         self.num_samples          = num_samples
+         self.cooldown_s           = cooldown_s
++        self.max_workers          = max_workers
+ 
+         self.n_windows = max(1, int(session_duration_s / window_duration_s))
+ 
+@@ -260,9 +262,11 @@
+         )
+ 
+         # Loop B — analysis timer
+-        # max_workers=2: one active worker + one queued if overflow occurs.
++        # max_workers=2 by default: one active worker + one queued if overflow
++        # occurs. Configurable via the max_workers constructor arg (e.g. to
++        # test whether concurrent workers contend with each other for CPU).
+         with ThreadPoolExecutor(
+-            max_workers=2, thread_name_prefix="AnalysisWorker"
++            max_workers=self.max_workers, thread_name_prefix="AnalysisWorker"
+         ) as executor:
+             self._executor = executor
+ 
+@@ -381,9 +385,11 @@
+                 )
+             print("─" * 66, flush=True)
+ 
++        t_submitted = time.time()
+         try:
+             self._executor.submit(
+-                self._analysis_worker, window_idx, t_offset, frames, audio
++                self._analysis_worker, window_idx, t_offset, frames, audio,
++                t_submitted,
+             )
+         except Exception as e:
+             print(f"  [ERROR] Could not submit worker for window {window_idx+1}: {e}")
+@@ -398,6 +404,7 @@
+         t_offset:   float,
+         frames:     List[np.ndarray],
+         audio:      Optional[np.ndarray],
++        t_submitted: Optional[float] = None,
+     ) -> None:
+         """
+         Saves the snapshot to temp files, runs analysis, prints results + timing.
+@@ -405,6 +412,20 @@
+         """
+         t_worker_start = time.time()
+ 
++        # Diagnostic: how long this task sat in the executor's queue before a
++        # worker thread was actually free to pick it up. Large values here
++        # (rather than in the analysis itself) point to backlog/contention
++        # upstream of analyze_window(), not slowness in the model call itself.
++        if t_submitted is not None:
++            queue_delay = t_worker_start - t_submitted
++            if queue_delay > 0.1:
++                with self._print_lock:
++                    print(
++                        f"  [Window {window_idx+1}] Queued {queue_delay:.2f}s "
++                        f"before a worker was free.",
++                        flush=True,
++                    )
++
+         # ── 1. Save snapshot to temp files ────────────────────────────────────
+         video_path, audio_path, has_audio = self._save_snapshot(
+             frames, audio, window_idx
+@@ -478,6 +499,8 @@
+                 "n_frames":           len(frames),
+                 "has_audio":          has_audio,
+                 "analysis_elapsed_s": t_analysis_elapsed,
++                "queue_delay_s":      (t_worker_start - t_submitted)
++                                      if t_submitted is not None else 0.0,
+             })
+ 
+         # ── 6. Cleanup temp files ─────────────────────────────────────────────
+@@ -674,6 +697,10 @@
+         print("║" + "  SESSION COMPLETE  ".center(w) + "║")
+         print("╚" + "═" * w + "╝")
+         print(f"  Total time: {elapsed_s:.1f}s")
++        total_analysis = sum(r.get("analysis_elapsed_s", 0.0) for r in self.session_results)
++        total_queue    = sum(r.get("queue_delay_s", 0.0) for r in self.session_results)
++        print(f"  Sum of per-window analysis time: {total_analysis:.1f}s")
++        print(f"  Sum of per-window queue delay (waiting for a free worker): {total_queue:.1f}s")
+         print()
+         print("  Behavior timeline:")
+         print(

@@ -1,0 +1,50 @@
+--- a/va-driven-behaviors/test_emotions.py
++++ b/va-driven-behaviors/test_emotions.py
+@@ -387,11 +387,12 @@
+     return features, fps
+ 
+ 
+-def extract_audio_features(video_path, sr=16000, n_mels=128, hop_length=160, max_frames=300, 
+-                           video_fps=None, num_video_frames=None, per_frame=False):
++def extract_audio_features(video_path, sr=16000, n_mels=128, hop_length=160, max_frames=300,
++                           video_fps=None, num_video_frames=None, per_frame=False,
++                           offset=0.0, duration=None):
+     """
+     Extract log-mel spectrogram features from video audio.
+-    
++
+     Args:
+         video_path: Path to video file
+         sr: Sample rate
+@@ -401,16 +402,25 @@
+         video_fps: Video FPS (used for alignment if per_frame=True)
+         num_video_frames: Number of video frames (used for alignment if per_frame=True)
+         per_frame: If True, align audio features to match video frame count
+-        
++        offset: Start time in seconds to begin reading audio (default: 0.0, i.e. start
++                of file). Lets a caller pull just one window's slice of audio out of a
++                longer source file instead of always reading from the beginning.
++        duration: How many seconds of audio to read starting at `offset` (default:
++                None, i.e. read to the end of the file).
++
+     Returns:
+         features: numpy array of shape (num_frames, 128) - log-mel features (no repeat trick)
+     """
+-    print(f"  Extracting audio features from: {video_path}")
+-    
++    print(f"  Extracting audio features from: {video_path}"
++          + (f"  (offset={offset:.2f}s, duration={duration:.2f}s)" if duration else ""))
++
+     try:
+-        # Load audio from video
+-        y, actual_sr = librosa.load(str(video_path), sr=sr, mono=True)
+-        
++        # Load audio from video. offset/duration let us slice out just the
++        # portion of a longer source file that corresponds to one analysis
++        # window, instead of always reading from t=0.
++        y, actual_sr = librosa.load(str(video_path), sr=sr, mono=True,
++                                     offset=offset, duration=duration)
++
+         if len(y) == 0:
+             print("    Warning: No audio found, using zeros")
+             if per_frame and num_video_frames is not None:

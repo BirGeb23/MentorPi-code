@@ -1,0 +1,38 @@
+--- a/va-driven-behaviors/run_offline.py
++++ b/va-driven-behaviors/run_offline.py
+@@ -431,7 +431,7 @@
+             cap    = cv2.VideoCapture(str(video_path))
+             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+             out    = cv2.VideoWriter(str(seg_path), fourcc, fps, (frame_w, frame_h))
+-            cap.set(cv2.CAP_PROP_POS_MSEC, start_s * 1000)
++            cap.set(cv2.CAP_PROP_POS_FRAMES, round(start_s * fps))
+             n_frames_written = 0
+             target = int((end_s - start_s) * fps)
+             for _ in range(target):
+@@ -444,14 +444,25 @@
+             cap.release()
+ 
+             # ── 2. Run VA analysis ────────────────────────────────────────────
++            # Audio: cv2.VideoWriter (used to build seg_path above) writes
++            # video-only clips — it has no audio support. So instead of
++            # extracting audio from the silent per-window segment, point the
++            # analyzer at the ORIGINAL source video (which has the real audio
++            # track) and give it this window's exact time range to slice out.
++            # If the caller explicitly passed --audio, respect that file
++            # instead, but still only read this window's slice of it.
++            window_audio_path = audio_path if audio_path is not None else str(video_path)
++
+             print(f"  Running VA analysis pipeline...", flush=True)
+             t_start  = time.time()
+             analysis = analyzer.analyze_window(
+                 video_path=str(seg_path),
+-                audio_path=audio_path,
++                audio_path=window_audio_path,
+                 num_samples=num_samples,
+                 last_v=last_v,
+                 last_a=last_a,
++                audio_offset=start_s,
++                audio_duration=(end_s - start_s),
+             )
+             analysis_elapsed = time.time() - t_start
+ 

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MentorPi Live Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f1419;
+            color: #e6e6e6;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        /* ---------- Header ---------- */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #2a2f3a;
+        }
+
+        .header h1 { font-size: 24px; }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .live-dot {
+            width: 10px; height: 10px;
+            background: #4ade80;
+            border-radius: 50%;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        .live-dot.stale { background: #ef4444; animation: none; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ---------- Main layout ---------- */
+        .container {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 600px) {
+            .cards { grid-template-columns: 1fr; }
+        }
+
+        /* ---------- Camera card ---------- */
+        .camera-card {
+            background: #1a1f2e;
+            border: 1px solid #2a2f3a;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+        }
+        .camera-card h2 { font-size: 14px; color: #94a3b8; margin-bottom: 12px; }
+        .camera-card img {
+            width: 100%;
+            border-radius: 8px;
+            background: #000;
+            aspect-ratio: 4 / 3;
+            object-fit: contain;
+        }
+
+        /* ---------- Info cards ---------- */
+        .card {
+            background: #1a1f2e;
+            border: 1px solid #2a2f3a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .card h2 {
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+
+        .card.wide { grid-column: 1 / -1; }
+
+        /* ---------- Intent card (feature) ---------- */
+        .intent-card {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            grid-column: 1 / -1;
+            text-align: center;
+        }
+        .intent-name {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #fff;
+            margin: 8px 0;
+        }
+        .intent-name.neutral   { color: #94a3b8; }
+        .intent-name.check_in  { color: #60a5fa; }
+        .intent-name.engage    { color: #4ade80; }
+        .intent-name.caution   { color: #fbbf24; }
+        .intent-name.de_escalate { color: #f87171; }
+
+        .intent-motion {
+            font-size: 14px;
+            color: #94a3b8;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            margin-top: 8px;
+        }
+
+        .intent-history {
+            font-size: 11px;
+            color: #64748b;
+            margin-top: 12px;
+            font-family: 'SF Mono', monospace;
+        }
+
+        /* ---------- Metric rows ---------- */
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #232838;
+            font-size: 14px;
+        }
+        .metric:last-child { border-bottom: none; }
+        .metric .label { color: #94a3b8; }
+        .metric .value {
+            color: #fff;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-weight: 600;
+        }
+
+        .status-ok      { color: #4ade80 !important; }
+        .status-warn    { color: #fbbf24 !important; }
+        .status-error   { color: #ef4444 !important; }
+        .status-null    { color: #64748b !important; }
+
+        /* ---------- Bearing indicator ---------- */
+        .bearing-bar {
+            position: relative;
+            height: 24px;
+            background: #232838;
+            border-radius: 12px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .bearing-center {
+            position: absolute;
+            left: 50%; top: 0; bottom: 0;
+            width: 2px;
+            background: #475569;
+        }
+        .bearing-marker {
+            position: absolute;
+            top: 4px;
+            width: 16px; height: 16px;
+            background: #4ade80;
+            border-radius: 50%;
+            transform: translateX(-50%);
+            transition: left 0.3s ease;
+        }
+        .bearing-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        /* ---------- VA bars ---------- */
+        .va-bar {
+            position: relative;
+            height: 8px;
+            background: #232838;
+            border-radius: 4px;
+            margin: 6px 0 12px 0;
+        }
+        .va-bar-fill {
+            position: absolute;
+            top: 0; bottom: 0;
+            background: #60a5fa;
+            transition: all 0.3s ease;
+        }
+        .va-bar-center {
+            position: absolute;
+            left: 50%; top: -2px; bottom: -2px;
+            width: 2px;
+            background: #475569;
+        }
+
+        /* ---------- Footer ---------- */
+        .footer {
+            margin-top: 20px;
+            padding-top: 12px;
+            border-top: 1px solid #2a2f3a;
+            font-size: 12px;
+            color: #64748b;
+            text-align: center;
+        }
+
+        .phase-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: #232838;
+            color: #94a3b8;
+        }
+        .phase-badge.recording { background: #1e40af; color: #dbeafe; }
+        .phase-badge.pipeline  { background: #7c2d12; color: #fed7aa; }
+        .phase-badge.dispatch  { background: #14532d; color: #bbf7d0; }
+        .phase-badge.idle      { background: #232838; color: #94a3b8; }
+
+        /* ---------- History section ---------- */
+        .history-section {
+            margin-top: 20px;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .history-table th {
+            text-align: left;
+            padding: 10px 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            border-bottom: 1px solid #2a2f3a;
+            font-weight: 600;
+        }
+
+        .history-table th.numeric,
+        .history-table td.numeric {
+            text-align: right;
+            font-family: 'SF Mono', 'Consolas', monospace;
+        }
+
+        .history-table tbody tr {
+            border-bottom: 1px solid #232838;
+        }
+        .history-table tbody tr:last-child { border-bottom: none; }
+
+        .history-table td {
+            padding: 12px;
+            color: #e6e6e6;
+        }
+
+        .history-table tbody tr:first-child {
+            background: rgba(74, 222, 128, 0.05);
+        }
+        .history-table tbody tr:first-child td:first-child::before {
+            content: "▸ ";
+            color: #4ade80;
+        }
+
+        .intent-pill {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: 'SF Mono', monospace;
+            background: #232838;
+            color: #94a3b8;
+        }
+        .intent-pill.neutral    { background: #1e293b; color: #94a3b8; }
+        .intent-pill.check_in   { background: rgba(96,165,250,0.15); color: #60a5fa; }
+        .intent-pill.engage     { background: rgba(74,222,128,0.15); color: #4ade80; }
+        .intent-pill.caution    { background: rgba(251,191,36,0.15); color: #fbbf24; }
+        .intent-pill.de_escalate{ background: rgba(248,113,113,0.15); color: #f87171; }
+
+        .va-inline {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'SF Mono', monospace;
+        }
+        .va-inline .mini-bar {
+            display: inline-block;
+            position: relative;
+            width: 40px;
+            height: 6px;
+            background: #232838;
+            border-radius: 3px;
+        }
+        .va-inline .mini-bar .fill {
+            position: absolute;
+            top: 0; bottom: 0;
+        }
+        .va-inline .mini-bar .center {
+            position: absolute;
+            left: 50%; top: -1px; bottom: -1px;
+            width: 1px;
+            background: #475569;
+        }
+
+        .history-empty {
+            text-align: center;
+            padding: 24px;
+            color: #64748b;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🤖 MentorPi Live Dashboard</h1>
+    <div class="status-badge">
+        <span id="cycle-num">Cycle: —</span>
+        <span class="phase-badge idle" id="phase">idle</span>
+        <span class="live-dot" id="live-dot"></span>
+        <span id="last-update">—</span>
+    </div>
+</div>
+
+<div class="container">
+    <!-- LEFT: Camera feed -->
+    <div class="camera-card">
+        <h2>CAMERA (LIVE)</h2>
+        <img src="/camera" alt="Live camera feed" id="camera-img">
+    </div>
+
+    <!-- RIGHT: All the info cards -->
+    <div class="cards">
+
+        <!-- Current intent (big, spans both columns) -->
+        <div class="intent-card">
+            <div style="font-size: 11px; color: #64748b; text-transform: uppercase;">CURRENT INTENT</div>
+            <div class="intent-name neutral" id="intent-name">—</div>
+            <div class="intent-motion" id="intent-motion">
+                linear +0.000 m/s · angular +0.000 rad/s
+            </div>
+            <div class="intent-history" id="intent-history">recent: —</div>
+        </div>
+
+        <!-- Person tracking -->
+        <div class="card">
+            <h2>Person Tracking</h2>
+            <div class="metric">
+                <span class="label">Visible</span>
+                <span class="value" id="person-visible">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Distance</span>
+                <span class="value" id="person-distance">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Distance source</span>
+                <span class="value" id="person-src">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Bearing</span>
+                <span class="value" id="person-bearing">—</span>
+            </div>
+            <div class="bearing-bar">
+                <div class="bearing-center"></div>
+                <div class="bearing-marker" id="bearing-marker" style="left: 50%;"></div>
+            </div>
+            <div class="bearing-labels">
+                <span>-45° left</span><span>center</span><span>+45° right</span>
+            </div>
+        </div>
+
+        <!-- Emotion (VA from pipeline) -->
+        <div class="card">
+            <h2>Emotion (Pipeline)</h2>
+            <div style="font-size: 12px; color: #94a3b8;">Valence
+                <span style="float: right; color: #fff; font-family: monospace;" id="valence-num">—</span></div>
+            <div class="va-bar">
+                <div class="va-bar-center"></div>
+                <div class="va-bar-fill" id="valence-bar"></div>
+            </div>
+            <div style="font-size: 12px; color: #94a3b8;">Arousal
+                <span style="float: right; color: #fff; font-family: monospace;" id="arousal-num">—</span></div>
+            <div class="va-bar">
+                <div class="va-bar-center"></div>
+                <div class="va-bar-fill" id="arousal-bar" style="background: #fbbf24;"></div>
+            </div>
+        </div>
+
+        <!-- Motion command -->
+        <div class="card">
+            <h2>Motion Command</h2>
+            <div class="metric">
+                <span class="label">Linear</span>
+                <span class="value" id="motion-linear">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Angular</span>
+                <span class="value" id="motion-angular">—</span>
+            </div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 8px; font-family: monospace;" id="motion-reason">reason: —</div>
+        </div>
+
+        <!-- Safety -->
+        <div class="card">
+            <h2>Safety</h2>
+            <div class="metric">
+                <span class="label">E-stop</span>
+                <span class="value" id="safety-estop">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Distance floor</span>
+                <span class="value" id="safety-floor">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Battery</span>
+                <span class="value" id="safety-battery">—</span>
+            </div>
+            <div class="metric">
+                <span class="label">Missing windows</span>
+                <span class="value" id="safety-missing">—</span>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="history-section">
+    <div class="card">
+        <h2>Recent Cycles (last 5)</h2>
+        <table class="history-table" id="history-table">
+            <thead>
+                <tr>
+                    <th>Cycle</th>
+                    <th>Time</th>
+                    <th>Valence</th>
+                    <th>Arousal</th>
+                    <th>Intent</th>
+                    <th class="numeric">Distance</th>
+                    <th class="numeric">Bearing</th>
+                    <th class="numeric">Motion</th>
+                </tr>
+            </thead>
+            <tbody id="history-body">
+                <tr><td colspan="8" class="history-empty">No cycles yet — waiting for the runner...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="footer">
+    MentorPi A1 · Runner mode: <span id="runner-mode">—</span>
+    · Polls /status every 500 ms
+</div>
+
+<script>
+    const $  = id => document.getElementById(id);
+    const POLL_MS = 500;
+    const STALE_MS = 3000;
+
+    function fmt(x, unit, digits = 2) {
+        if (x === null || x === undefined) return "—";
+        return `${x >= 0 ? "+" : ""}${x.toFixed(digits)} ${unit}`.trim();
+    }
+
+    function updateBearingMarker(deg) {
+        // Map -45° → 0%, 0° → 50%, +45° → 100%
+        if (deg === null || deg === undefined) {
+            $("bearing-marker").style.left = "50%";
+            return;
+        }
+        const clamped = Math.max(-45, Math.min(45, deg));
+        const pct = ((clamped + 45) / 90) * 100;
+        $("bearing-marker").style.left = pct + "%";
+    }
+
+    function updateVABar(val, barId, positiveColor, negativeColor) {
+        if (val === null || val === undefined) {
+            $(barId).style.width = "0";
+            return;
+        }
+        const bar = $(barId);
+        const clamped = Math.max(-1, Math.min(1, val));
+        const pct = Math.abs(clamped) * 50;   // half-width max
+        if (clamped >= 0) {
+            bar.style.left = "50%";
+            bar.style.width = pct + "%";
+        } else {
+            bar.style.left = (50 - pct) + "%";
+            bar.style.width = pct + "%";
+        }
+    }
+
+    let lastUpdate = 0;
+
+    async function refresh() {
+        try {
+            const r = await fetch("/status", { cache: "no-store" });
+            const s = await r.json();
+            lastUpdate = Date.now();
+
+            // ---- Header ----
+            $("cycle-num").textContent = "Cycle: " + (s.cycle ?? "—");
+            const phase = s.phase || "idle";
+            $("phase").textContent = phase;
+            $("phase").className = "phase-badge " + phase;
+            $("runner-mode").textContent = s.runner?.mode ?? "—";
+
+            // ---- Intent ----
+            const intent = s.intent?.current || "—";
+            const nameEl = $("intent-name");
+            nameEl.textContent = intent;
+            nameEl.className = "intent-name " + intent.toLowerCase();
+
+            const m = s.motion || {};
+            $("intent-motion").textContent =
+                `linear ${fmt(m.linear_mps, "m/s", 3)} · ` +
+                `angular ${fmt(m.angular_radps, "rad/s", 3)}`;
+
+            const history = (s.intent?.history || []).slice(-5).join(" → ") || "—";
+            $("intent-history").textContent = "recent: " + history;
+
+            // ---- Person tracking ----
+            const p = s.person || {};
+            $("person-visible").textContent  = p.visible ? "✓ Yes" : "✗ No";
+            $("person-visible").className     = "value " + (p.visible ? "status-ok" : "status-null");
+            $("person-distance").textContent = p.distance_m !== null ? p.distance_m.toFixed(2) + " m" : "—";
+            $("person-src").textContent      = p.distance_source || "—";
+            $("person-bearing").textContent  = p.bearing_deg !== null ? (p.bearing_deg > 0 ? "+" : "") + p.bearing_deg + "°" : "—";
+            updateBearingMarker(p.bearing_deg);
+
+            // ---- Emotion ----
+            const e = s.emotion || {};
+            $("valence-num").textContent = e.valence !== null && e.valence !== undefined ? fmt(e.valence, "", 3) : "—";
+            $("arousal-num").textContent = e.arousal !== null && e.arousal !== undefined ? fmt(e.arousal, "", 3) : "—";
+            updateVABar(e.valence, "valence-bar");
+            updateVABar(e.arousal, "arousal-bar");
+
+            // ---- Motion ----
+            $("motion-linear").textContent  = fmt(m.linear_mps, "m/s", 3);
+            $("motion-angular").textContent = fmt(m.angular_radps, "rad/s", 3);
+            $("motion-reason").textContent  = "reason: " + (m.reason || "—");
+
+            // ---- Safety ----
+            const sf = s.safety || {};
+            function safetyLabel(v) {
+                const cls = v === "OK" ? "status-ok" :
+                            (v === "TRIGGERED" || v === "LOW") ? "status-error" : "status-null";
+                return {text: v || "—", cls};
+            }
+            const es = safetyLabel(sf.estop);
+            $("safety-estop").textContent = es.text; $("safety-estop").className = "value " + es.cls;
+            const fl = safetyLabel(sf.distance_floor);
+            $("safety-floor").textContent = fl.text; $("safety-floor").className = "value " + fl.cls;
+            const bt = safetyLabel(sf.battery);
+            $("safety-battery").textContent = bt.text; $("safety-battery").className = "value " + bt.cls;
+            $("safety-missing").textContent = sf.missing_windows ?? "0";
+
+            // ---- History table ----
+            renderHistory(s.history || []);
+        } catch (err) {
+            // Server or file unavailable — mark stale
+        }
+    }
+
+    function timeAgo(ts) {
+        if (!ts) return "—";
+        const nowSec = Date.now() / 1000;
+        const diff = Math.max(0, nowSec - ts);
+        if (diff < 60) return Math.floor(diff) + "s ago";
+        if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+        return Math.floor(diff / 3600) + "h ago";
+    }
+
+    function miniVABar(val) {
+        // Small horizontal bar showing V or A value (-1 to +1)
+        if (val === null || val === undefined) return "—";
+        const clamped = Math.max(-1, Math.min(1, val));
+        const pct = Math.abs(clamped) * 50;
+        const color = val >= 0 ? "#60a5fa" : "#f87171";
+        const left = val >= 0 ? 50 : 50 - pct;
+        return `
+            <span class="va-inline">
+                <span style="width: 46px; text-align: right;">${val >= 0 ? "+" : ""}${val.toFixed(3)}</span>
+                <span class="mini-bar">
+                    <span class="center"></span>
+                    <span class="fill" style="left: ${left}%; width: ${pct}%; background: ${color};"></span>
+                </span>
+            </span>`;
+    }
+
+    function renderHistory(history) {
+        const body = $("history-body");
+        if (!history.length) {
+            body.innerHTML = '<tr><td colspan="8" class="history-empty">No cycles yet — waiting for the runner...</td></tr>';
+            return;
+        }
+        body.innerHTML = history.map(h => {
+            const intentClass = (h.intent || "").toLowerCase();
+            const dist = h.distance_m !== null && h.distance_m !== undefined
+                ? h.distance_m.toFixed(2) + " m" : "—";
+            const bearing = h.bearing_deg !== null && h.bearing_deg !== undefined
+                ? (h.bearing_deg > 0 ? "+" : "") + h.bearing_deg + "°" : "—";
+            const linear  = h.linear_mps !== undefined
+                ? (h.linear_mps >= 0 ? "+" : "") + h.linear_mps.toFixed(2) : "—";
+            const angular = h.angular_radps !== undefined
+                ? (h.angular_radps >= 0 ? "+" : "") + h.angular_radps.toFixed(2) : "—";
+            return `<tr>
+                <td>#${h.cycle}</td>
+                <td>${timeAgo(h.timestamp)}</td>
+                <td>${miniVABar(h.valence)}</td>
+                <td>${miniVABar(h.arousal)}</td>
+                <td><span class="intent-pill ${intentClass}">${h.intent || "—"}</span></td>
+                <td class="numeric">${dist}</td>
+                <td class="numeric">${bearing}</td>
+                <td class="numeric">${linear} m/s · ${angular} rad/s</td>
+            </tr>`;
+        }).join("");
+    }
+
+    // Update "last update" text and staleness every 500ms
+    function updateStaleness() {
+        const age = lastUpdate ? (Date.now() - lastUpdate) : Infinity;
+        const dot = $("live-dot");
+        if (age > STALE_MS) {
+            dot.classList.add("stale");
+            $("last-update").textContent = "stale (" + Math.floor(age / 1000) + "s)";
+        } else {
+            dot.classList.remove("stale");
+            $("last-update").textContent = "live";
+        }
+    }
+
+    setInterval(refresh, POLL_MS);
+    setInterval(updateStaleness, 500);
+    refresh();
+</script>
+
+</body>
+</html>

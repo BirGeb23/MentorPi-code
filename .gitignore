@@ -1,0 +1,12 @@
+# Model files are downloaded separately (see README)
+*.task
+*.tflite
+*.pt
+# Python / OS clutter
+__pycache__/
+*.pyc
+.DS_Store
+# Test output
+*.jpg
+*.avi
+*.wav
