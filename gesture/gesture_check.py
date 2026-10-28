@@ -45,7 +45,7 @@ except ImportError as e:
     sys.exit(1)
 
 DEFAULT_STREAM_URL = (
-    "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+    "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 )
 DEFAULT_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "gesture_recognizer.task")

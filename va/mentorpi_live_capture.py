@@ -60,7 +60,7 @@ except (ImportError, OSError):   # OSError: PortAudio library missing
 # Same URL used by mentorpi_camera_recorder.py / record_demo_video.py --
 # web_video_server re-serving the Angstrong RGB topic as HTTP MJPEG.
 DEFAULT_STREAM_URL = (
-    "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+    "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 )
 
 # Confirmed via `arecord -D hw:2,0 --dump-hw-params`: the WonderEcho Pro's

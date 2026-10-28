@@ -95,7 +95,7 @@ class MentorPiAdapter:
     # ---------------------------------------------------------------
     # 1) CONNECT — set up rosbridge WebSocket (or skip in mock mode)
     # ---------------------------------------------------------------
-    def __init__(self, mock=False, rosbridge_host="127.0.0.1",
+    def __init__(self, mock=False, rosbridge_host="192.168.149.1",
                  rosbridge_port=9090, topic="/controller/cmd_vel"):
         self.mock  = mock
         self.state = RobotState()

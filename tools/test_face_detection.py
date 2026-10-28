@@ -17,7 +17,7 @@ Usage (on the Pi, with venv active):
 import cv2
 import mediapipe as mp
 
-STREAM_URL = "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+STREAM_URL = "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 RAW_OUT   = "/tmp/test_frame.jpg"
 ANNOT_OUT = "/tmp/test_frame_annotated.jpg"
 

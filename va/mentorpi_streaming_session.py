@@ -58,7 +58,7 @@ except (ImportError, OSError):   # OSError: PortAudio library missing
 
 
 DEFAULT_STREAM_URL = (
-    "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+    "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 )
 
 # Confirmed via `arecord -D hw:2,0 --dump-hw-params`: fixed, not a range.

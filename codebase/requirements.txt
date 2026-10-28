@@ -1,0 +1,5 @@
+# Python 3.14 runtime. MediaPipe supplies the OpenCV contrib package used by cv2.
+mediapipe==1.2.0
+numpy
+opencv-contrib-python
+websocket-client>=1.6.4,<2

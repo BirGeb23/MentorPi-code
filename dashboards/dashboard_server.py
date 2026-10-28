@@ -53,7 +53,7 @@ PORT = 5000
 # The camera stream is served by web_video_server inside the MentorPi
 # container. We proxy it through this server so the dashboard can just
 # hit /camera and doesn't need to know the underlying URL.
-CAMERA_UPSTREAM = "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+CAMERA_UPSTREAM = "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):

@@ -45,7 +45,7 @@ class LidarDistanceReader:
     """
 
     def __init__(self,
-                 rosbridge_host: str = "127.0.0.1",
+                 rosbridge_host: str = "192.168.149.1",
                  rosbridge_port: int = 9090,
                  topic: str = "/scan_raw",
                  window_deg: float = 10.0,

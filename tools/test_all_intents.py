@@ -49,7 +49,7 @@ from mentorpi_adapter import MentorPiAdapter
 from person_tracker  import PersonTracker
 from lidar_reader    import LidarDistanceReader
 
-STREAM_URL      = "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+STREAM_URL      = "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 CAPTURE_SECONDS = 4.0
 
 

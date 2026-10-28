@@ -74,7 +74,7 @@ from safety import MAX_MISSING_WINDOWS
 PORT = 5050
 HTML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "intent_demo.html")
-CAMERA_UPSTREAM = "http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
+CAMERA_UPSTREAM = "http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image"
 STREAM_URL = CAMERA_UPSTREAM
 
 HOLD_DURATION_S = 2.5          # how long the base intent motion runs

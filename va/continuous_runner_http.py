@@ -72,7 +72,7 @@ VENV_PYTHON = _PI_VENV if os.path.exists(_PI_VENV) else sys.executable
 
 # HTTP stream from web_video_server (running inside the MentorPi container)
 CAMERA_TOPIC = "/ascamera/camera_publisher/rgb0/image"
-STREAM_URL   = f"http://127.0.0.1:8080/stream?topic={CAMERA_TOPIC}"
+STREAM_URL   = f"http://192.168.149.1:8080/stream?topic={CAMERA_TOPIC}"
 FPS          = 15.0
 
 # --- Audio: WonderEcho Pro USB mic ---

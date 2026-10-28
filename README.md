@@ -32,8 +32,8 @@ face tracker + LiDAR (robot/) ──▶ person distance / direction ──┘
 
 The MentorPi runs ROS 2 inside a Docker container named `MentorPi`. Its standard bringup starts automatically on boot and provides:
 
-- **Camera:** `web_video_server` serves the RGB camera as an HTTP stream at `http://127.0.0.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image` (640×480, about 12 fps).
-- **Motion and LiDAR:** `rosbridge` on `ws://127.0.0.1:9090`. The adapter publishes wheel commands to `/controller/cmd_vel`.
+- **Camera:** `web_video_server` serves the RGB camera as an HTTP stream at `http://192.168.149.1:8080/stream?topic=/ascamera/camera_publisher/rgb0/image` (640×480, about 12 fps).
+- **Motion and LiDAR:** `rosbridge` on `ws://192.168.149.1:9090`. The adapter publishes wheel commands to `/controller/cmd_vel`.
 
 All scripts here run **on the Pi's host (outside Docker)** and talk to the robot through those two bridges. `ros2` commands only work inside the container (`docker exec -it MentorPi bash`).
 
