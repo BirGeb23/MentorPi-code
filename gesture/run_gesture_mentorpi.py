@@ -36,6 +36,11 @@ How a gesture becomes motion:
      gesture, the robot returns to NEUTRAL and stops.
   5. Gestures are only acted on while a face has been seen recently, so a
      hand with no person attached (or a stale detection) can't drive it.
+  6. QR badge priority (robot/qr_priority.py, on by default): only the
+     person wearing an allowed QR code below their face can drive the
+     robot. The crop, distance and bearing follow them, and a hand only
+     counts if it belongs to their face. With no badge in view, gestures
+     are ignored. --no-qr turns this off (any person's gesture counts).
 
 Motion runs on its own thread with "interrupt & replace": a new decision
 stops the current hold immediately. The CHECK_IN nod (1 s) can be cut short
@@ -54,6 +59,9 @@ Usage:
 
     # Real wheel motion: open space, hand near the power switch
     python3 run_gesture_mentorpi.py --duration 60 --real-motion
+
+    # Badge: python3 ../tools/qr_priority_live.py --make-qr /tmp/priority_qr.png
+    # Without the badge rule: python3 run_gesture_mentorpi.py --no-qr
 
     # Live dashboard works too (separate terminal): python3 dashboard_server.py
 ============================================================================
@@ -78,6 +86,9 @@ from mentorpi_adapter import MentorPiAdapter
 from person_tracker import PersonTracker
 from lidar_reader import LidarDistanceReader
 from safety import apply_all
+from qr_priority import (PRIORITY_HOLD_S, PRIORITY_PAYLOADS, Face,
+                         PriorityState, QRDetector, assign_hand_to_face,
+                         gesture_allowed)
 
 try:
     import mediapipe as mp
@@ -201,7 +212,8 @@ def parse_args():
                    help="Seconds to run (default 0 = until Ctrl+C)")
     p.add_argument("--real-motion", action="store_true",
                    help="Enable real wheel motion. Default is MOCK.")
-    p.add_argument("--stream-url", default=DEFAULT_STREAM_URL)
+    p.add_argument("--stream-url", default=DEFAULT_STREAM_URL,
+                   help="Camera stream URL, or a number (e.g. 0) for a local webcam")
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--no-lidar", action="store_true",
                    help="Skip the LiDAR (face-size distance only)")
@@ -213,6 +225,16 @@ def parse_args():
     p.add_argument("--snapshot", default=None, metavar="PATH",
                    help="Save the full camera frame 10 s into the run, with the "
                         "detected face (green) and gesture crop (blue) drawn on it")
+    p.add_argument("--no-qr", action="store_true",
+                   help="Turn off QR badge priority: any person's gesture counts")
+    p.add_argument("--payload", action="append", default=None,
+                   help="Allowed QR text (repeat for more). "
+                        f"Default: {', '.join(sorted(PRIORITY_PAYLOADS))}")
+    p.add_argument("--any-qr", action="store_true",
+                   help="Accept any QR code, whatever it says")
+    p.add_argument("--qr-hold", type=float, default=PRIORITY_HOLD_S,
+                   help="Seconds priority lasts after the badge was last read "
+                        f"(default {PRIORITY_HOLD_S:g})")
     return p.parse_args()
 
 
@@ -233,6 +255,14 @@ def main():
         print("  Keep ~2.5 m clear in front and behind. Hand near the power switch.")
     print("  Thumb up=ENGAGE  Pointing up=CHECK_IN  Open palm=CAUTION  "
           "Thumb down=DE_ESCALATE")
+    if args.no_qr:
+        print("  QR priority: OFF (any person's gesture counts)")
+    else:
+        payloads = None if args.any_qr else \
+            (set(args.payload) if args.payload else PRIORITY_PAYLOADS)
+        print("  QR priority: ON, only the badge wearer's gestures count. "
+              "Badges: " + ("any QR" if payloads is None else
+                            ", ".join(sorted(payloads))))
     print("=" * 62)
 
     # ---- Robot + sensors ----
@@ -261,10 +291,18 @@ def main():
         vision.GestureRecognizerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=args.model),
             running_mode=vision.RunningMode.VIDEO,
-            num_hands=1,
+            # With QR priority, look for a second hand so another person's
+            # hand in the crop can't hide the badge wearer's.
+            num_hands=1 if args.no_qr else 2,
         ))
+    use_qr = not args.no_qr
+    if use_qr:
+        qr_detector = QRDetector(payloads)
+        priority = PriorityState(hold_s=args.qr_hold)
 
-    cap = cv2.VideoCapture(args.stream_url)
+    # A bare number means a local webcam index (e.g. 0 on a laptop).
+    src = int(args.stream_url) if args.stream_url.isdigit() else args.stream_url
+    cap = cv2.VideoCapture(src)
     ok, frame = cap.read() if cap.isOpened() else (False, None)
     if not ok:
         print(f"ERROR: could not read from camera stream {args.stream_url}")
@@ -287,6 +325,7 @@ def main():
         "camera": {"stream_url": "/camera"},
         "runner": {"mode": "MOCK" if is_mock else "REAL"},
         "gesture": {"label": None, "score": None},
+        "qr": {"enabled": use_qr, "priority": False, "text": None},
         "history": [],
     }
 
@@ -388,6 +427,7 @@ def main():
     frames = 0
     face_checks = face_hits = 0
     last_bbox = None
+    faces = []          # every face from the latest check, as qr_priority.Face
     snapshot_saved = False
     recog_total = 0.0
     last_label = None
@@ -407,7 +447,27 @@ def main():
 
             # -- 1. Face tracking: person state + crop position --
             if frames % FACE_STRIDE == 0:
-                det = tracker.process_frame(frame)
+                faces = [Face(*f) for f in tracker.detect_faces(frame)]
+                target = max(faces, key=lambda f: f.w * f.h, default=None)
+                if use_qr:
+                    codes = qr_detector.detect(frame)
+                    _, events = priority.update(now, faces, codes)
+                    for ev in events:
+                        if ev == "granted":
+                            print(f"[{now - t_start:6.1f}s] QR priority granted "
+                                  f"({priority.text})")
+                        else:
+                            print(f"[{now - t_start:6.1f}s] QR priority released")
+                            voter.votes.clear()
+                    status["qr"].update(priority=priority.active,
+                                        text=priority.text)
+                    # Follow the badge wearer; with no badge, the largest
+                    # face still drives safety and the dashboard.
+                    if priority.active:
+                        target = priority.face if priority.face in faces else None
+                det = {"visible": False} if target is None else tracker.measure(
+                    (target.x, target.y, target.w, target.h), frame.shape,
+                    target.score)
                 face_checks += 1
                 if det["visible"]:
                     face_hits += 1
@@ -454,7 +514,20 @@ def main():
             recog_total += time.time() - t_r
 
             label, score = None, None
-            tops = [g[0] for g in result.gestures if g]
+            if use_qr:
+                tops = []
+                cx0, cy0, cx1, cy1 = crop_box
+                for i, lms in enumerate(result.hand_landmarks):
+                    if i >= len(result.gestures) or not result.gestures[i]:
+                        continue
+                    # Hand centre in full-frame pixels, to match the faces
+                    hx = cx0 + (cx1 - cx0) * sum(lm.x for lm in lms) / len(lms)
+                    hy = cy0 + (cy1 - cy0) * sum(lm.y for lm in lms) / len(lms)
+                    hand_face = assign_hand_to_face((hx, hy), faces)
+                    if gesture_allowed(hand_face, priority, require_priority=True):
+                        tops.append(result.gestures[i][0])
+            else:
+                tops = [g[0] for g in result.gestures if g]
             if tops:
                 best = max(tops, key=lambda c: c.score)
                 label, score = best.category_name, best.score
@@ -519,7 +592,10 @@ def main():
                 print(f"[{el:6.1f}s] status: {frames / el:.1f} fps, "
                       f"gesture {1000 * recog_total / max(frames, 1):.0f} ms/frame, "
                       f"face found in {face_hits}/{face_checks} checks, "
-                      f"person {person_txt}, intent {active_intent}")
+                      f"person {person_txt}, "
+                      + (f"QR {'priority' if priority.active else 'none'}, "
+                         if use_qr else "")
+                      + f"intent {active_intent}")
                 face_hits = face_checks = 0
                 last_report_t = now
                 write_status()

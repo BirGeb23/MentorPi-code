@@ -53,7 +53,8 @@ DEFAULT_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 
 def parse_args():
     p = argparse.ArgumentParser(description="Phase 0 gesture recognizer check")
-    p.add_argument("--stream-url", default=DEFAULT_STREAM_URL)
+    p.add_argument("--stream-url", default=DEFAULT_STREAM_URL,
+                   help="Camera stream URL, or a number (e.g. 0) for a local webcam")
     p.add_argument("--model", default=DEFAULT_MODEL)
     p.add_argument("--duration", type=float, default=30.0,
                    help="Seconds to run (default 30)")
@@ -102,7 +103,9 @@ def main():
     )
     recognizer = vision.GestureRecognizer.create_from_options(options)
 
-    cap = cv2.VideoCapture(args.stream_url)
+    # A bare number means a local webcam index (e.g. 0 on a laptop).
+    src = int(args.stream_url) if args.stream_url.isdigit() else args.stream_url
+    cap = cv2.VideoCapture(src)
     if not cap.isOpened():
         print(f"ERROR: could not open camera stream: {args.stream_url}")
         print("  Is web_video_server running in the MentorPi container?")

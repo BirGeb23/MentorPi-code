@@ -82,13 +82,8 @@ class PersonTracker:
                 'bbox':            (x, y, w, h) in pixels, or None,
             }
         """
-        h, w = frame_bgr.shape[:2]
-
-        # MediaPipe expects RGB
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        results = self.detector.process(frame_rgb)
-
-        if not results.detections:
+        faces = self.detect_faces(frame_bgr)
+        if not faces:
             return {
                 'visible':         False,
                 'bearing_rad':     None,
@@ -99,20 +94,34 @@ class PersonTracker:
             }
 
         # Multiple faces? Take the largest (assumed closest).
-        best = None
-        best_area = 0.0
-        for det in results.detections:
-            b = det.location_data.relative_bounding_box
-            area = b.width * b.height
-            if area > best_area:
-                best_area = area
-                best = det
+        x, y, w, h, score = max(faces, key=lambda f: f[2] * f[3])
+        return self.measure((x, y, w, h), frame_bgr.shape, score)
 
-        b = best.location_data.relative_bounding_box
+    def detect_faces(self, frame_bgr):
+        """Every face in a BGR frame, as a list of (x, y, w, h, score) in
+        pixels (floats). Use measure() to get bearing/distance for one."""
+        h, w = frame_bgr.shape[:2]
+
+        # MediaPipe expects RGB
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        results = self.detector.process(frame_rgb)
+
+        faces = []
+        for det in results.detections or []:
+            b = det.location_data.relative_bounding_box
+            faces.append((b.xmin * w, b.ymin * h, b.width * w, b.height * h,
+                          det.score[0] if det.score else 0.0))
+        return faces
+
+    def measure(self, bbox, frame_shape, confidence=None):
+        """Bearing and distance for one face box (x, y, w, h) in pixels.
+        Returns the same dict as process_frame(), with 'visible' True."""
+        frame_h, frame_w = frame_shape[:2]
+        x, y, bw, bh = bbox
 
         # --- Bearing: horizontal angle from camera center ---
         # Face center x in normalized coords (0..1)
-        face_cx_norm = b.xmin + b.width / 2.0
+        face_cx_norm = (x + bw / 2.0) / frame_w
         # Offset from center: -0.5 (left edge) to +0.5 (right edge)
         offset_from_center = face_cx_norm - 0.5
         # Scale by full FOV: at frame edges, angle = ±hfov/2
@@ -122,7 +131,7 @@ class PersonTracker:
         # We always compute the face-bbox estimate first, because it acts as
         # both a hint for the LiDAR (to disambiguate person from other objects
         # at the same bearing) and as a fallback if the LiDAR can't confirm.
-        face_height_px = b.height * h
+        face_height_px = bh
         face_estimate  = self.k / face_height_px if face_height_px > 0 else 5.0
 
         distance_m      = None
@@ -147,14 +156,7 @@ class PersonTracker:
             distance_source = 'face_bbox'
 
         # --- Pixel bbox for optional debug rendering ---
-        bbox_px = (
-            int(b.xmin * w),
-            int(b.ymin * h),
-            int(b.width * w),
-            int(b.height * h),
-        )
-
-        confidence = best.score[0] if best.score else 0.0
+        bbox_px = (int(x), int(y), int(bw), int(bh))
 
         return {
             'visible':         True,

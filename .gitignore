@@ -10,3 +10,7 @@ __pycache__/
 *.jpg
 *.avi
 *.wav
+# Virtualenvs / IDE
+.venv/
+.venv-*/
+.idea/
