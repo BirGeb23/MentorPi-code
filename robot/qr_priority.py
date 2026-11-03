@@ -37,7 +37,7 @@ import numpy as np
 
 # ---------- Configuration ----------
 # Only QR codes with one of these payloads give priority. None = any QR.
-PRIORITY_PAYLOADS = {"MENTORPI-PRIORITY"}
+PRIORITY_PAYLOADS = {"MENTORPI-PRIORITY", "https://chai.gsu.edu/"}
 
 # The imaginary line, in units of the face box (fw = width, fh = height),
 # from the bottom-centre of the face box ("chin") to the QR centre:
@@ -93,6 +93,13 @@ class QRLink:
 # ============================================================================
 # QR detection
 # ============================================================================
+# OpenCV warns "ECI is not supported properly" on every read of a QR from a
+# website generator (e.g. the CHAI badge) but still decodes it. The log
+# level API moved in OpenCV 5.
+_cv_log = getattr(getattr(cv2, "utils", None), "logging", None) or cv2
+_CV_LOG_ERROR = 2   # errors only (3 = warnings)
+
+
 class QRDetector:
     def __init__(self, payloads=PRIORITY_PAYLOADS):
         self.detector = cv2.QRCodeDetector()
@@ -100,10 +107,14 @@ class QRDetector:
 
     def detect(self, frame_bgr):
         """Return a list of QRCode whose payload was read and is allowed."""
+        level = _cv_log.getLogLevel()
+        _cv_log.setLogLevel(_CV_LOG_ERROR)   # hide the ECI warning
         try:
             ok, texts, points, _ = self.detector.detectAndDecodeMulti(frame_bgr)
         except cv2.error:
             return []
+        finally:
+            _cv_log.setLogLevel(level)
         if not ok or points is None:
             return []
         codes = []
@@ -256,7 +267,7 @@ def assign_hand_to_face(point, faces):
             continue
         cost = dx / f.w + HAND_UPDOWN_WEIGHT * abs(dy) / f.h
         if best_cost is None or cost < best_cost:
-            best, best_cost = f, costq
+            best, best_cost = f, cost
     return best
 
 

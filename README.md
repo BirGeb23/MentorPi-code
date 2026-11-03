@@ -128,7 +128,7 @@ python3 run_gesture_mentorpi.py --real-motion    # wheels move
 - **Hold check:** a gesture only counts after at least 4 frames of it within 1 s, so a single misread frame can't move the robot.
 - **Repeat and release:** while the gesture is held, the intent is re-sent every 2.5 s. 1.5 s after the hand drops, the robot returns to NEUTRAL.
 - **Person required:** gestures only count while a face has been seen in the last 2 s.
-- **QR badge priority (on by default):** only the person wearing an allowed QR code (default text `MENTORPI-PRIORITY`) at chest height below their face can drive the robot. The crop, distance and turning follow them, and other people's hands are ignored. With no badge in view, gestures are ignored. Priority lasts 4 s after the badge was last read (`--qr-hold`). Make a badge with `python3 ../tools/qr_priority_live.py --make-qr /tmp/priority_qr.png`. `--no-qr` brings back the old behaviour (anyone's gesture counts); `--any-qr` accepts any QR code.
+- **QR badge priority (on by default):** only the person wearing an allowed QR code (default text `MENTORPI-PRIORITY`, or the printed CHAI badge `https://chai.gsu.edu/`) at chest height below their face can drive the robot. The crop, distance and turning follow them, and other people's hands are ignored. With no badge in view, gestures are ignored. Priority lasts 4 s after the badge was last read (`--qr-hold`). Make a badge with `python3 ../tools/qr_priority_live.py --make-qr /tmp/priority_qr.png`. `--no-qr` brings back the old behaviour (anyone's gesture counts); `--any-qr` accepts any QR code.
 - **Working range:** tested working at 1.5–2 m.
 
 Options:
