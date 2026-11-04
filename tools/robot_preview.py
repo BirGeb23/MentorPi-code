@@ -49,6 +49,8 @@ CONNECT_WAIT_S = 90            # Pi start-up (models, camera) can be slow
 STOP_WAIT_S    = 10            # time the runner gets to stop the wheels
 STREAM_GAP_S   = 8             # reconnect after this long without a frame
                                # (the real-motion countdown sends none for 5 s)
+VIEWER_LOST_S  = 15            # runner stops itself after this long unwatched
+                               # (> STREAM_GAP_S + reconnect time)
 WINDOW = "MentorPi preview (q to quit)"
 
 
@@ -83,8 +85,11 @@ def close_master(host, sock):
 
 
 def start_runner(host, sock, port, runner_args):
+    # --stop-without-viewer: if this script dies without stopping the runner
+    # (crash, laptop closed, Wi-Fi gone), the runner stops itself
     cmd = (f"source {REMOTE_VENV}/bin/activate && cd {REMOTE_REPO}/gesture && "
            f"exec python3 run_gesture_mentorpi.py --preview {port} "
+           f"--stop-without-viewer {VIEWER_LOST_S} "
            + " ".join(shlex.quote(a) for a in runner_args))
     # -tt gives the runner a terminal on the Pi, so writing Ctrl+C (\x03)
     # to ssh's stdin reaches it as a real Ctrl+C. Own session: a Ctrl+C
