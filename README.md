@@ -18,7 +18,7 @@ face tracker + LiDAR (robot/) ──▶ person distance / direction ──┘
 
 | Folder | Contents |
 |---|---|
-| `robot/` | Shared by everything. `mentorpi_adapter.py` (intent → wheel motion, plus the nod / pulse / scan / greet movements), `safety.py` (speed limits, minimum distance, no-person stop, obstacles, E-stop), `person_tracker.py` (face tracking: visible, direction, distance), `lidar_reader.py` (LiDAR distance). |
+| `robot/` | Shared by everything. `mentorpi_adapter.py` (intent → wheel motion, plus the nod / pulse / scan / greet movements), `safety.py` (speed limits, minimum distance, no-person stop, obstacles, E-stop), `person_tracker.py` (face tracking: visible, direction, distance), `lidar_reader.py` (LiDAR distance), `qr_priority.py` (QR badge priority), `preview_server.py` (`--preview` video stream), `latest_frame.py` (camera reader that drops stale frames). |
 | `va/` | Emotion pipeline on the MentorPi. `continuous_runner_http.py` (records 6 s, runs the offline pipeline, acts, repeats), `run_online_mentorpi.py` + `mentorpi_streaming_session.py` (real-time online pipeline), `mentorpi_live_capture.py` (records synchronized video + audio for offline tests). |
 | `gesture/` | Gesture pipeline. `run_gesture_mentorpi.py` (gesture → intent → motion), `gesture_check.py` (accuracy test tool). |
 | `dashboards/` | `dashboard_server.py` + `dashboard.html` (live monitor, port 5000), `intent_demo_server.py` + `intent_demo.html` (button demo panel, port 5050). |
@@ -129,6 +129,7 @@ python3 run_gesture_mentorpi.py --real-motion    # wheels move
 - **Repeat and release:** while the gesture is held, the intent is re-sent every 2.5 s. 1.5 s after the hand drops, the robot returns to NEUTRAL.
 - **Person required:** gestures only count while a face has been seen in the last 2 s.
 - **QR badge priority (on by default):** only the person wearing an allowed QR code (default text `MENTORPI-PRIORITY`, or the printed CHAI badge `https://chai.gsu.edu/`) at chest height below their face can drive the robot. The crop, distance and turning follow them, and other people's hands are ignored. With no badge in view, gestures are ignored. Priority lasts 4 s after the badge was last read (`--qr-hold`). Make a badge with `python3 ../tools/qr_priority_live.py --make-qr /tmp/priority_qr.png`. `--no-qr` brings back the old behaviour (anyone's gesture counts); `--any-qr` accepts any QR code.
+- **Video preview (`--preview`):** the runner serves its annotated camera view, drawn like `tools/qr_priority_live.py` (face and badge boxes, the chin-to-badge line, hand dots, gesture and intent), at `http://<pi-ip>:5001/`. Open it in a browser on a laptop on the robot's network. `--preview 5002` picks another port. Frames are capped at 10 fps to keep load off the Pi. To get a window on your laptop instead, start the runner from the laptop with `tools/robot_preview.py` (see [Tools](#tools)).
 - **Working range:** tested working at 1.5–2 m.
 
 Options:
@@ -219,8 +220,17 @@ When running with `--real-motion`:
 | `test_new_motions.py` | Tries the GREET, PULSE and SCAN movements. |
 | `real_motion_showcase.py` | Real-motion run through all five intents. |
 | `offline_full_loop.py` | Runs a saved video through the VA pipeline and then the adapter. |
+| `robot_preview.py` | **Run on your laptop.** SSHes into the Pi, starts the gesture runner with `--preview`, and opens a window with the robot's annotated live feed. `q` or Ctrl+C stops the runner (and the wheels). If the launcher dies without stopping it (crash, laptop closed, Wi-Fi gone), the runner stops itself after 15 s without a viewer (`--stop-without-viewer`). Other options go to the runner, e.g. `python3 robot_preview.py --real-motion`. `--host` sets the Pi's address (default `pi@192.168.149.1`). |
 
 ## Troubleshooting
+
+- **Badge not read on the robot (`QR none`):** under ceiling lights the robot's camera makes the paper dark grey, and OpenCV's built-in QR reader fails on it. The gesture runner then uses OpenCV's WeChat reader, which needs `opencv-contrib-python` (MediaPipe usually installs it). At start-up the runner prints `[QR] Badge reader: ...`; if it says only `OpenCV built-in`, download the wheel on a laptop with internet and install it on the Pi:
+  ```
+  pip download opencv-contrib-python==4.9.0.80 --no-deps --only-binary=:all: --platform manylinux2014_aarch64 --python-version 3.11 -d .
+  scp opencv_contrib_python-*.whl pi@<pi-ip>:~
+  # on the Pi:
+  pip uninstall -y opencv-python opencv-contrib-python && pip install ~/opencv_contrib_python-*.whl
+  ```
 
 - **No internet on the Pi:** expected while connected through the MentorPi's own hotspot. Download files on a laptop and `scp` them over.
 - **`ros2: command not found`:** `ros2` only exists inside the container. Run `docker exec -it MentorPi bash`, then `source /opt/ros/humble/setup.bash`.

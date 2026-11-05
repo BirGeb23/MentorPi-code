@@ -29,6 +29,7 @@ tools/qr_priority_live.py.
 """
 
 import math
+import threading
 from dataclasses import dataclass
 
 import cv2
@@ -100,22 +101,98 @@ _cv_log = getattr(getattr(cv2, "utils", None), "logging", None) or cv2
 _CV_LOG_ERROR = 2   # errors only (3 = warnings)
 
 
+# On the robot's 640x480 camera a badge at ~1 m is only ~100 px wide, too
+# few pixels per square for OpenCV's reader. Given the faces, detect() reads
+# just the area under each one (where a badge must be to count), enlarged
+# to about this many pixels tall.
+QR_ZONE_TARGET_PX = 900
+QR_ZONE_MAX_SCALE = 4.0
+
+
 class QRDetector:
-    def __init__(self, payloads=PRIORITY_PAYLOADS):
+    def __init__(self, payloads=PRIORITY_PAYLOADS, use_wechat=False):
+        """use_wechat: also try OpenCV's WeChat reader (opencv-contrib-python)
+        first, if installed. Under the robot's ceiling lights the badge comes
+        out dark grey on a tilted angle; the built-in reader can't read
+        that, WeChat can."""
         self.detector = cv2.QRCodeDetector()
+        self.wechat = None
+        if use_wechat and hasattr(cv2, "wechat_qrcode_WeChatQRCode"):
+            self.wechat = cv2.wechat_qrcode_WeChatQRCode()
         self.payloads = set(payloads) if payloads is not None else None
 
-    def detect(self, frame_bgr):
-        """Return a list of QRCode whose payload was read and is allowed."""
+    @property
+    def reader_name(self):
+        return ("WeChat, then OpenCV built-in" if self.wechat is not None
+                else "OpenCV built-in")
+
+    def detect(self, frame_bgr, faces=None):
+        """Return a list of QRCode whose payload was read and is allowed.
+        With WeChat on, it reads the whole frame first. Otherwise (or if it
+        finds nothing): faces = list of Face. If given, only the zone under
+        each face is searched, enlarged so small badges still read. Without
+        faces the whole frame is searched as is."""
+        if self.wechat is not None:
+            codes = self._read_wechat(frame_bgr)
+            if codes:
+                return codes
+        if not faces:
+            return self._read(frame_bgr)
+        h, w = frame_bgr.shape[:2]
+        codes = []
+        for f in faces:
+            cx, cy = f.chin
+            half_w = (LINE_MAX_SIDEWAYS_FACES + 1.0) * f.w   # + badge half-width
+            x0, x1 = max(0, int(cx - half_w)), min(w, int(cx + half_w) + 1)
+            y0 = max(0, int(cy - 0.5 * f.h))
+            y1 = min(h, int(cy + (LINE_MAX_DOWN_FACES + 1.0) * f.h) + 1)
+            if x1 - x0 < 16 or y1 - y0 < 16:
+                continue
+            scale = min(QR_ZONE_MAX_SCALE, max(1.0, QR_ZONE_TARGET_PX / (y1 - y0)))
+            zone = frame_bgr[y0:y1, x0:x1]
+            if scale > 1.0:
+                zone = cv2.resize(zone, None, fx=scale, fy=scale,
+                                  interpolation=cv2.INTER_CUBIC)
+            for c in self._read(zone, (x0, y0), scale):
+                # Zones of people side by side can overlap: keep one copy
+                if not any(o.text == c.text and
+                           math.dist(o.center, c.center) < 0.5 * f.w
+                           for o in codes):
+                    codes.append(c)
+        return codes
+
+    def _read_wechat(self, img):
+        try:
+            texts, points = self.wechat.detectAndDecode(img)
+        except cv2.error:
+            return []
+        codes = []
+        for text, pts in zip(texts, points):
+            if not text:
+                continue
+            if self.payloads is not None and text not in self.payloads:
+                continue
+            pts = np.asarray(pts, dtype=float).reshape(4, 2)
+            cx, cy = pts.mean(axis=0)
+            codes.append(QRCode(text, (float(cx), float(cy)), pts))
+        return codes
+
+    def _read(self, img, offset=(0, 0), scale=1.0):
+        """Read QRs in img; corners mapped back by /scale + offset."""
         level = _cv_log.getLogLevel()
         _cv_log.setLogLevel(_CV_LOG_ERROR)   # hide the ECI warning
         try:
-            ok, texts, points, _ = self.detector.detectAndDecodeMulti(frame_bgr)
+            ok, texts, points, _ = self.detector.detectAndDecodeMulti(img)
+            if not (ok and points is not None and any(texts)):
+                # The multi reader often misses a lone badge the single
+                # reader gets
+                text, pts, _ = self.detector.detectAndDecode(img)
+                ok, texts, points = bool(text), [text], [pts]
         except cv2.error:
             return []
         finally:
             _cv_log.setLogLevel(level)
-        if not ok or points is None:
+        if not ok or points[0] is None:
             return []
         codes = []
         for text, pts in zip(texts, points):
@@ -123,10 +200,60 @@ class QRDetector:
                 continue   # found a QR shape but couldn't read it
             if self.payloads is not None and text not in self.payloads:
                 continue
-            pts = np.asarray(pts, dtype=float).reshape(4, 2)
+            pts = np.asarray(pts, dtype=float).reshape(4, 2) / scale + offset
             cx, cy = pts.mean(axis=0)
             codes.append(QRCode(text, (float(cx), float(cy)), pts))
         return codes
+
+
+class BackgroundQRDetector:
+    """Runs a QRDetector on its own thread, so a slow read (enlarged zones
+    on the Pi) never holds up the camera loop. submit() hands over a frame
+    if the thread is idle (and is ignored while it's busy); poll() returns
+    the codes of a finished read once, else None."""
+
+    def __init__(self, detector):
+        self.detector = detector
+        self._job = None
+        self._result = None
+        self._busy = False
+        self._running = True
+        self._cond = threading.Condition()
+        threading.Thread(target=self._loop, daemon=True,
+                         name="QRDetector").start()
+
+    def submit(self, frame_bgr, faces=None):
+        with self._cond:
+            if self._busy:
+                return False
+            # Copy: the caller may draw on its frame while we read it
+            self._job, self._busy = (frame_bgr.copy(), list(faces or [])), True
+            self._cond.notify()
+            return True
+
+    def poll(self):
+        with self._cond:
+            result, self._result = self._result, None
+            return result
+
+    def stop(self):
+        with self._cond:
+            self._running = False
+            self._cond.notify()
+
+    def _loop(self):
+        while True:
+            with self._cond:
+                self._cond.wait_for(lambda: self._job or not self._running)
+                if not self._running:
+                    return
+                (frame, faces), self._job = self._job, None
+            try:
+                codes = self.detector.detect(frame, faces)
+            except Exception:
+                codes = []
+            with self._cond:
+                self._result, self._busy = codes, False
 
 
 # ============================================================================

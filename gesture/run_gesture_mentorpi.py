@@ -63,6 +63,9 @@ Usage:
     # Badge: python3 ../tools/qr_priority_live.py --make-qr /tmp/priority_qr.png
     # Without the badge rule: python3 run_gesture_mentorpi.py --no-qr
 
+    # Annotated video in a browser on your laptop: add --preview, then open
+    # the http://<pi-ip>:5001/ address it prints
+
     # Live dashboard works too (separate terminal): python3 dashboard_server.py
 ============================================================================
 """
@@ -70,6 +73,7 @@ Usage:
 import argparse
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -86,9 +90,11 @@ from mentorpi_adapter import MentorPiAdapter
 from person_tracker import PersonTracker
 from lidar_reader import LidarDistanceReader
 from safety import apply_all
-from qr_priority import (PRIORITY_HOLD_S, PRIORITY_PAYLOADS, Face,
-                         PriorityState, QRDetector, assign_hand_to_face,
-                         gesture_allowed)
+from qr_priority import (PRIORITY_HOLD_S, PRIORITY_PAYLOADS,
+                         BackgroundQRDetector, Face, PriorityState, QRDetector,
+                         assign_hand_to_face, gesture_allowed)
+from preview_server import PREVIEW_PORT, PreviewServer
+from latest_frame import LatestFrameReader
 
 try:
     import mediapipe as mp
@@ -204,6 +210,79 @@ class CropFollower:
 
 
 # ============================================================================
+# Preview drawing (--preview)
+# ============================================================================
+# Same look as tools/qr_priority_live.py (BGR colours)
+GREY   = (160, 160, 160)
+ORANGE = (0, 165, 255)
+GREEN  = (0, 200, 0)
+RED    = (0, 0, 255)
+WHITE  = (255, 255, 255)
+FONT   = cv2.FONT_HERSHEY_SIMPLEX
+HUD_SCALE = 12 / 22   # 12 px text
+
+
+def _pt(xy):
+    return (int(round(xy[0])), int(round(xy[1])))
+
+
+def _label(img, text, org, colour, scale=0.55):
+    (tw, th), _ = cv2.getTextSize(text, FONT, scale, 1)
+    x, y = org
+    y = max(th + 4, y)
+    cv2.rectangle(img, (x, y - th - 4), (x + tw + 4, y + 2), (0, 0, 0), -1)
+    cv2.putText(img, text, (x + 2, y - 2), FONT, scale, colour, 1, cv2.LINE_AA)
+
+
+def draw_preview(img, faces, priority, links, hands, label, score, intent):
+    """Draw the runner's view onto img (the full camera frame), like
+    tools/qr_priority_live.py. priority is None with --no-qr.
+    hands = [(xs, ys, face, counted)] in full-frame pixels. intent is the
+    runner's current (held) intent."""
+    for f in faces:
+        is_p = priority is not None and f is priority.face
+        colour = ORANGE if is_p else GREY
+        cv2.rectangle(img, _pt((f.x, f.y)), _pt((f.x + f.w, f.y + f.h)),
+                      colour, 3 if is_p else 1)
+        if is_p:
+            _label(img, "PRIORITY", _pt((f.x, f.y - 4)), ORANGE)
+
+    for link in links or []:
+        colour = GREEN if link.face is not None else RED
+        if link.qr.corners is not None:
+            cv2.polylines(img, [link.qr.corners.astype(np.int32).reshape(-1, 1, 2)],
+                          True, colour, 2)
+        q = _pt(link.qr.center)
+        if link.face is not None:
+            c = _pt(link.face.chin)
+            cv2.line(img, c, q, ORANGE, 2, cv2.LINE_AA)
+            cv2.circle(img, c, 4, ORANGE, -1)
+            cv2.circle(img, q, 4, ORANGE, -1)
+        _label(img, link.qr.text if link.face else f"{link.qr.text} (no face)",
+               (q[0] + 8, q[1]), colour, 0.45)
+
+    locked = priority is not None and not priority.active
+    for xs, ys, face, counted in hands:
+        colour = GREY if priority is None or locked else \
+            (GREEN if counted else RED)
+        for x, y in zip(xs, ys):
+            cv2.circle(img, _pt((x, y)), 2, colour, -1)
+        cv2.rectangle(img, _pt((xs.min(), ys.min())), _pt((xs.max(), ys.max())),
+                      colour, 1)
+        if face is not None:
+            cv2.line(img, _pt((xs.mean(), ys.mean())), _pt(face.center),
+                     colour, 1, cv2.LINE_AA)
+
+    g_text = "none" if label in (None, "None") else f"{label} ({score:.2f})"
+    _label(img, f"Gesture: {g_text}", (8, 20), WHITE, HUD_SCALE)
+    if locked:
+        _label(img, "Intent:  locked (no QR)", (8, 42), RED, HUD_SCALE)
+    else:
+        _label(img, f"Intent:  {intent}", (8, 42),
+               WHITE if intent == "NEUTRAL" else GREEN, HUD_SCALE)
+
+
+# ============================================================================
 # Main
 # ============================================================================
 def parse_args():
@@ -232,14 +311,32 @@ def parse_args():
                         f"Default: {', '.join(sorted(PRIORITY_PAYLOADS))}")
     p.add_argument("--any-qr", action="store_true",
                    help="Accept any QR code, whatever it says")
+    p.add_argument("--preview", nargs="?", type=int, const=PREVIEW_PORT,
+                   default=None, metavar="PORT",
+                   help="Serve the annotated camera view to a browser at "
+                        f"http://<pi-ip>:PORT/ (default port {PREVIEW_PORT})")
+    p.add_argument("--stop-without-viewer", type=float, default=0,
+                   metavar="SECONDS",
+                   help="With --preview: stop (wheels too) once the preview has "
+                        "had no viewer for this long, after someone watched. "
+                        "tools/robot_preview.py sets it so the robot can't "
+                        "keep going if the laptop side dies. 0 = off")
     p.add_argument("--qr-hold", type=float, default=PRIORITY_HOLD_S,
                    help="Seconds priority lasts after the badge was last read "
                         f"(default {PRIORITY_HOLD_S:g})")
     return p.parse_args()
 
 
+def _stop_on_signal(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main():
     args = parse_args()
+    # A dropped SSH session sends SIGHUP; treat it (and SIGTERM) like Ctrl+C
+    # so the wheels are still stopped on the way out.
+    signal.signal(signal.SIGHUP, _stop_on_signal)
+    signal.signal(signal.SIGTERM, _stop_on_signal)
     is_mock = not args.real_motion
 
     if not os.path.exists(args.model) or os.path.getsize(args.model) == 0:
@@ -297,7 +394,12 @@ def main():
         ))
     use_qr = not args.no_qr
     if use_qr:
-        qr_detector = QRDetector(payloads)
+        reader = QRDetector(payloads, use_wechat=True)
+        print(f"[QR] Badge reader: {reader.reader_name}")
+        if reader.wechat is None:
+            print("[QR] WeChat reader not installed: badges may not read under "
+                  "bright lights. See README (opencv-contrib-python).")
+        qr_detector = BackgroundQRDetector(reader)
         priority = PriorityState(hold_s=args.qr_hold)
 
     # A bare number means a local webcam index (e.g. 0 on a laptop).
@@ -310,7 +412,18 @@ def main():
         sys.exit(1)
     h, w = frame.shape[:2]
     print(f"[CAM] Stream opened: {w}x{h}")
+    cap = LatestFrameReader(cap)
     follower = CropFollower(w, h)
+
+    preview = None
+    if args.preview:
+        try:
+            preview = PreviewServer(port=args.preview)
+            preview.start()
+        except OSError as e:
+            print(f"[PREVIEW] Could not start on port {args.preview} ({e}); "
+                  "running without preview.")
+            preview = None
 
     # ---- Dashboard status (same file/shape as continuous_runner_http.py) ----
     status = {
@@ -404,14 +517,10 @@ def main():
         write_status()
 
     # ---- Real-motion countdown ----
-    # Keep reading (and discarding) frames during the countdown. A plain
-    # sleep here let ~5 s of frames pile up in OpenCV's stream buffer, so the
-    # first several seconds of the run were processing stale images.
+    # (LatestFrameReader drops old frames, so nothing piles up meanwhile)
     if not is_mock:
         print("\n  Starting real motion in 5 seconds -- Ctrl+C to abort.")
-        t_wait = time.time()
-        while time.time() - t_wait < 5.0:
-            cap.read()
+        time.sleep(5.0)
 
     voter = GestureVoter()
     active_intent = "NEUTRAL"
@@ -428,6 +537,8 @@ def main():
     face_checks = face_hits = 0
     last_bbox = None
     faces = []          # every face from the latest check, as qr_priority.Face
+    links = []          # QR -> face links from the latest check (preview only)
+    loop_times = deque(maxlen=20)   # recent frame times, for the preview fps
     snapshot_saved = False
     recog_total = 0.0
     last_label = None
@@ -440,9 +551,9 @@ def main():
         while args.duration <= 0 or time.time() - t_start < args.duration:
             ok, frame = cap.read()
             if not ok:
-                time.sleep(0.02)
-                continue
+                continue   # no new frame within 1 s
             frames += 1
+            loop_times.append(time.time())
             now = time.time()
 
             # -- 1. Face tracking: person state + crop position --
@@ -450,8 +561,13 @@ def main():
                 faces = [Face(*f) for f in tracker.detect_faces(frame)]
                 target = max(faces, key=lambda f: f.w * f.h, default=None)
                 if use_qr:
-                    codes = qr_detector.detect(frame)
-                    _, events = priority.update(now, faces, codes)
+                    # The read runs in the background; its result (from a
+                    # frame or two ago) is linked to the current faces
+                    qr_detector.submit(frame, faces)
+                    codes = qr_detector.poll()
+                    new_links, events = priority.update(now, faces, codes)
+                    if codes is not None:
+                        links = new_links
                     for ev in events:
                         if ev == "granted":
                             print(f"[{now - t_start:6.1f}s] QR priority granted "
@@ -582,6 +698,36 @@ def main():
                 last_pulse_t = now
                 dispatch("NEUTRAL", "PULSE")
 
+            # -- Preview: annotated full frame to the browser --
+            if preview is not None and preview.wants_frame():
+                cx0, cy0, cx1, cy1 = crop_box
+                hands = []
+                for lms in result.hand_landmarks:
+                    xs = cx0 + (cx1 - cx0) * np.array([lm.x for lm in lms])
+                    ys = cy0 + (cy1 - cy0) * np.array([lm.y for lm in lms])
+                    face = assign_hand_to_face((xs.mean(), ys.mean()), faces)
+                    counted = not use_qr or gesture_allowed(
+                        face, priority, require_priority=True)
+                    hands.append((xs, ys, face, counted))
+                draw_preview(frame, faces, priority if use_qr else None,
+                             links, hands, label, score, active_intent)
+                # How old this frame is by now, and the loop rate: if this
+                # stays small but the video lags, the delay is downstream
+                loop_fps = (len(loop_times) - 1) / max(
+                    loop_times[-1] - loop_times[0], 1e-6)
+                _label(frame, f"Pi delay {1000 * (time.time() - cap.frame_t):.0f}"
+                       f" ms, {loop_fps:.1f} fps", (8, frame.shape[0] - 8),
+                       GREY, 0.45)
+                preview.update(frame)
+
+            # -- Laptop side gone (launcher crashed, Wi-Fi dropped): stop --
+            if preview is not None and args.stop_without_viewer > 0:
+                gone = preview.seconds_without_viewer()
+                if gone is not None and gone > args.stop_without_viewer:
+                    print(f"\n[PREVIEW] No viewer for {gone:.0f} s -> stopping "
+                          "the robot.")
+                    break
+
             # -- 4. Periodic status line + dashboard refresh --
             if now - last_report_t >= 5.0:
                 el = now - t_start
@@ -610,6 +756,10 @@ def main():
             current["thread"].join(timeout=5.0)
         adapter.shutdown()
         cap.release()
+        if preview is not None:
+            preview.stop()
+        if use_qr:
+            qr_detector.stop()
         recognizer.close()
         tracker.close()
         if lidar_reader is not None:
