@@ -10,3 +10,5 @@ __pycache__/
 *.jpg
 *.avi
 *.wav
+# Robot-specific calibration
+spot_calibration.json

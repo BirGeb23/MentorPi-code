@@ -24,6 +24,7 @@ face tracker + LiDAR (robot/) ──▶ person distance / direction ──┘
 | `dashboards/` | `dashboard_server.py` + `dashboard.html` (live monitor, port 5000), `intent_demo_server.py` + `intent_demo.html` (button demo panel, port 5050). |
 | `tools/` | Test and diagnostic scripts (see [Tools](#tools)). |
 | `docs/` | `VA_Pipeline_Issues_Reference.md` (known VA pipeline issues), `MentorPi_Motion_Mapping_Design.md` (original motion design proposal). |
+| `spot/` | The gesture-driven intents on Boston Dynamics Spot (Spot CAM PTZ, AprilTag control, optional skeleton check). Runs on a laptop, not the Pi. See [spot/README.md](spot/README.md). |
 | `va_pipeline_patches/` | Fixes for files in the team's VA pipeline (frame seeking, per-window audio, `max_workers`), kept as patches to apply to the team repo. See its README. |
 
 **Not in the repo:** the MediaPipe gesture model (download it, see setup) and the JointCAM checkpoints (`va-driven-behaviors/models/*.pt`, too large for Git; get them from the team).
